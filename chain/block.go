@@ -9,18 +9,27 @@ import (
 )
 
 type Block struct {
-	Timestamp     int64  // 时间戳
-	Data          []byte // 数据域
-	PrevBlockHash []byte //前块hash
-	Hash          []byte // 当前快hash
-	Nonce         int64  // 随机数
+	Timestamp     int64          // 时间戳
+	Transactions  []*Transaction // 交易信息
+	PrevBlockHash []byte         //前块hash
+	Hash          []byte         // 当前快hash
+	Nonce         int64          // 随机数
 }
 
 func (b *Block) setHash() {
 	timestamp := []byte(strconv.FormatInt(b.Timestamp, 10))
-	headers := bytes.Join([][]byte{b.PrevBlockHash, b.Data, timestamp}, []byte{})
+	headers := bytes.Join([][]byte{b.PrevBlockHash, b.HashTransactions(), timestamp}, []byte{})
 	hash := sha256.Sum256(headers) // [32]byte
 	b.Hash = hash[:]               // []byte
+}
+
+func (b *Block) HashTransactions() []byte {
+	hashes := make([][]byte, 0, len(b.Transactions))
+	for _, tx := range b.Transactions {
+		hashes = append(hashes, tx.ID)
+	}
+	hash := sha256.Sum256(bytes.Join(hashes, []byte{}))
+	return hash[:]
 }
 
 // Serialize 序列化区块
@@ -43,10 +52,10 @@ func DeserializeBlock(d []byte) *Block {
 	return &block
 }
 
-func NewBlock(preHash []byte, data []byte) *Block {
+func NewBlock(tx []*Transaction, preHash []byte) *Block {
 	block := &Block{
 		Timestamp:     time.Now().Unix(),
-		Data:          data,
+		Transactions:  tx,
 		PrevBlockHash: preHash,
 		Hash:          nil,
 	}
@@ -59,6 +68,6 @@ func NewBlock(preHash []byte, data []byte) *Block {
 	return block
 }
 
-func NewGenesisBlock() *Block {
-	return NewBlock([]byte{}, []byte("Genesis Block"))
+func NewGenesisBlock(coinBase *Transaction) *Block {
+	return NewBlock([]*Transaction{coinBase}, []byte{})
 }

@@ -17,7 +17,7 @@ func main() {
 		var block *chain.Block
 		block, next = bci.PreBlock()
 		fmt.Printf("Prev. hash: %x \n", block.PrevBlockHash)
-		fmt.Printf("Data: %s \n", block.Data)
+		fmt.Printf("TxFromAddr: %s \n", block.Transactions[0].Vin[0].FromAddr)
 		fmt.Printf("Hash: %x \n", block.Hash)
 		fmt.Printf("Nonce: %d \n", block.Nonce)
 		pow := chain.NewProofOfWork(block)

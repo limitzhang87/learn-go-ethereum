@@ -118,8 +118,9 @@ func (bc *Blockchain) AddBlock(txs []*Transaction) {
 	}
 }
 
-// FindUnspentTransactions 查找账户可以解锁的全部交易
-func (bc *Blockchain) FindUnspentTransactions(address string) []*Transaction {
+// FindUnspentTransactionsOld 查找账户可以解锁的全部交易
+// Deprecated: 不再使用
+func (bc *Blockchain) FindUnspentTransactionsOld(address string) []*Transaction {
 	var unspentTXs []*Transaction
 	// 已经花出的UTXO， 构建tx -> VOutIdx的map
 	spentTXOs := make(map[string][]int)
@@ -158,6 +159,58 @@ func (bc *Blockchain) FindUnspentTransactions(address string) []*Transaction {
 						spentTXOs[inTxId] = append(spentTXOs[inTxId], input.VOutIdx)
 					}
 				}
+			}
+		}
+
+		if !next {
+			break
+		}
+	}
+	return unspentTXs
+}
+
+// FindUnspentTransactions 查找账户可以解锁的全部交易
+func (bc *Blockchain) FindUnspentTransactions(address string) []*Transaction {
+	var unspentTXs []*Transaction
+	// 已经花出的UTXO， 构建tx -> VOutIdx的map
+	spentTXOs := make(map[string]map[int]struct{})
+	bci := bc.Iterator()
+	for {
+		// 遍历所有区块
+		block, next := bci.PreBlock()
+
+		// 遍历每一个区块中的所有交易
+		for _, tx := range block.Transactions {
+			txID := hex.EncodeToString(tx.ID)
+
+			// 遍历交易中的输出，找到没有被输入引用的交易
+			for outIdx, out := range tx.VOut {
+				// 不是当前发给当前地址的，直接跳过
+				if out.CanBeUnLockWith(address) == false {
+					continue
+				}
+				// 已经被花出去了(存在交易输入中)，直接跳过此交易输出
+				if _, ok := spentTXOs[txID][outIdx]; ok {
+					continue
+				}
+				// 添加到未花费输出中
+				unspentTXs = append(unspentTXs, tx)
+			}
+
+			// 挖矿交易，直接跳过输入部分
+			if tx.IsCoinBase() {
+				continue
+			}
+			// 用来维护spentTXOs, 已经被引用过了，代表被使用
+			for _, input := range tx.VIn {
+				if input.CanUnlockOutputWith(address) == false {
+					continue
+				}
+				inTxId := hex.EncodeToString(input.TxId)
+				if spentTXOs[inTxId] == nil {
+					spentTXOs[inTxId] = make(map[int]struct{})
+				}
+				spentTXOs[inTxId][input.VOutIdx] = struct{}{}
 			}
 		}
 

@@ -33,13 +33,14 @@ func (pow *ProofOfWork) Run() (int64, []byte) {
 	var hashInt big.Int
 	var hash [32]byte
 	var nonce int64 = 0
-	fmt.Printf("%s\n", pow.block.Transactions[0].Vin[0].FromAddr)
+	//fmt.Printf("%s\n", pow.block.Transactions[0].VIn[0].FromAddr)
+	fmt.Printf("%s  ", pow.target)
 	for nonce < MaxNonce {
 		// 数据准备
 		data := pow.prepareData(nonce)
 		// 计算hash
 		hash = sha256.Sum256(data)
-		fmt.Printf("\r%x %x", hash, pow.target)
+		fmt.Printf("\r%x", hash)
 		hashInt.SetBytes(hash[:])
 		if hashInt.Cmp(pow.target) == -1 {
 			break

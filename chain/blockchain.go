@@ -1,11 +1,11 @@
 package chain
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"log"
-	"os"
 )
 
 const (
@@ -21,12 +21,12 @@ type Blockchain struct {
 	db  *bolt.DB
 }
 
-func dbExists() bool {
-	if _, err := os.Stat(DbFile); os.IsNotExist(err) {
-		return false
-	}
-	return true
-}
+//func dbExists() bool {
+//	if _, err := os.Stat(DbFile); os.IsNotExist(err) {
+//		return false
+//	}
+//	return true
+//}
 
 func NewBlockchain() *Blockchain {
 	// 1. 创建数据库文件，只能第一次创建
@@ -116,6 +116,80 @@ func (bc *Blockchain) AddBlock(txs []*Transaction) {
 	if err != nil {
 		log.Fatal("Block db update err", err)
 	}
+}
+
+// FindUnspentTransactions 查找账户可以解锁的全部交易
+func (bc *Blockchain) FindUnspentTransactions(address string) []*Transaction {
+	var unspentTXs []*Transaction
+	// 已经花出的UTXO， 构建tx -> VOutIdx的map
+	spentTXOs := make(map[string][]int)
+	bci := bc.Iterator()
+	for {
+		// 遍历所有区块
+		block, next := bci.PreBlock()
+
+		// 遍历每一个区块中的所有交易
+		for _, tx := range block.Transactions {
+			txID := hex.EncodeToString(tx.ID)
+
+			// 遍历交易中的输出，
+		Outputs:
+			for outIdx, out := range tx.VOut {
+				// 已经被花出去了，直接跳过此交易
+				if spentTXOs[txID] != nil {
+					for _, spentOut := range spentTXOs[txID] {
+						if spentOut == outIdx {
+							continue Outputs
+						}
+					}
+				}
+
+				// 可以被address解锁，代表属于address的utxo在此交易中
+				if out.CanBeUnLockWith(address) {
+					unspentTXs = append(unspentTXs, tx)
+				}
+			}
+
+			// 用来维护spentTXOs, 已经被引用过了，代表被使用（需要排除挖矿收入）
+			if tx.IsCoinBase() == false {
+				for _, input := range tx.VIn {
+					if input.CanUnlockOutputWith(address) {
+						inTxId := hex.EncodeToString(input.TxId)
+						spentTXOs[inTxId] = append(spentTXOs[inTxId], input.VOutIdx)
+					}
+				}
+			}
+		}
+
+		if !next {
+			break
+		}
+	}
+	return unspentTXs
+}
+
+// FindUTXO 查找账户的全部UTXO
+func (bc *Blockchain) FindUTXO(address string) []*TXOutput {
+	unspentTXs := bc.FindUnspentTransactions(address)
+	UTXO := make([]*TXOutput, 0, len(unspentTXs))
+	for _, tx := range unspentTXs {
+		for _, out := range tx.VOut {
+			if out.CanBeUnLockWith(address) {
+				tmp := out
+				UTXO = append(UTXO, &tmp)
+			}
+		}
+	}
+	return UTXO
+}
+
+func (bc *Blockchain) GetBalance(address string) int {
+	UTXO := bc.FindUTXO(address)
+	value := 0
+	for _, out := range UTXO {
+		value += out.Value
+	}
+	return value
 }
 
 type BlockchainIterator struct {

@@ -19,8 +19,8 @@ func TestNewBlockchain(t *testing.T) {
 				got.AddBlock([]*Transaction{
 					{
 						ID:   nil,
-						Vin:  nil,
-						Vout: nil,
+						VIn:  nil,
+						VOut: nil,
 					},
 				})
 				//got.AddBlock("Send 2 more BTC to limit2")

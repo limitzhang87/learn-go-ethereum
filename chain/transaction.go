@@ -10,8 +10,8 @@ import (
 // TXInput 交易输入结构
 type TXInput struct {
 	TxId     []byte // 应用交易ID
-	VoutIdx  int    // 应用的交易输出编号
-	FromAddr string // 输入方验签
+	VOutIdx  int    // 应用的交易输出编号
+	FromAddr string // 输入方验签， 类似于上一个交易中TxOutput的ToAddr
 }
 
 // TXOutput 交易输出结构
@@ -20,10 +20,20 @@ type TXOutput struct {
 	ToAddr string // 输出方验签
 }
 
+// CanUnlockOutputWith 判断该输入是否可以被某个账户使用
+func (in *TXInput) CanUnlockOutputWith(addr string) bool {
+	return in.FromAddr == addr
+}
+
+// CanBeUnLockWith 判断某输出是否可以被账户使用
+func (out *TXOutput) CanBeUnLockWith(addr string) bool {
+	return out.ToAddr == addr
+}
+
 type Transaction struct {
 	ID   []byte     // 交易ID
-	Vin  []TXInput  // 交易输入项
-	Vout []TXOutput // 交易输出项
+	VIn  []TXInput  // 交易输入项
+	VOut []TXOutput // 交易输出项
 }
 
 // SetId 将交易信息转为hash， 并设为ID
@@ -45,7 +55,7 @@ func NewCoinBaseTX(to, data string) *Transaction {
 		data = fmt.Sprintf("Reward to '%s'", to)
 	}
 	// 创建一个输入项
-	txIn := TXInput{TxId: []byte{}, VoutIdx: -1, FromAddr: data}
+	txIn := TXInput{TxId: []byte{}, VOutIdx: -1, FromAddr: data}
 	// 创建输出项
 	txOut := TXOutput{Value: Subsidy, ToAddr: to}
 	tx := Transaction{nil, []TXInput{txIn}, []TXOutput{txOut}}
@@ -54,5 +64,5 @@ func NewCoinBaseTX(to, data string) *Transaction {
 }
 
 func (tx *Transaction) IsCoinBase() bool {
-	return len(tx.Vin) == 1 && len(tx.Vin[0].TxId) == 0 && tx.Vin[0].VoutIdx == -1
+	return len(tx.VIn) == 1 && len(tx.VIn[0].TxId) == 0 && tx.VIn[0].VOutIdx == -1
 }

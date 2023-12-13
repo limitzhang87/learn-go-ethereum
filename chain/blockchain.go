@@ -83,8 +83,8 @@ func NewBlockchain() *Blockchain {
 	return &Blockchain{tip, db}
 }
 
-// AddBlock 添加区块
-func (bc *Blockchain) AddBlock(txs []*Transaction) {
+// MinedBlock 挖矿
+func (bc *Blockchain) MinedBlock(txs []*Transaction, data string) {
 	var tip []byte
 	// 1. 获取上一个区块的hash
 	err := bc.db.View(func(tx *bolt.Tx) error {
@@ -93,6 +93,10 @@ func (bc *Blockchain) AddBlock(txs []*Transaction) {
 		tip = bucket.Get([]byte("last"))
 		return nil
 	})
+
+	// 交易信息增加挖矿奖励
+	cbtx := NewCoinBaseTX(Miner, data)
+	txs = append(txs, cbtx)
 
 	// 利用前块生成新块
 	newBlock := NewBlock(txs, tip)
@@ -234,6 +238,26 @@ func (bc *Blockchain) FindUTXO(address string) []*TXOutput {
 		}
 	}
 	return UTXO
+}
+
+func (bc *Blockchain) FindUnSpendableOutputs(address string, amount int) (int, map[string][]int) {
+	unspentTXs := bc.FindUnspentTransactions(address)
+	unspentTXOs := make(map[string][]int)
+	value := 0
+Loop:
+	for _, tx := range unspentTXs {
+		txId := hex.EncodeToString(tx.ID)
+		for i, output := range tx.VOut {
+			if output.CanBeUnLockWith(address) && value < amount {
+				unspentTXOs[txId] = append(unspentTXOs[txId], i)
+				value += output.Value
+				if value > amount {
+					break Loop
+				}
+			}
+		}
+	}
+	return value, unspentTXOs
 }
 
 func (bc *Blockchain) GetBalance(address string) int {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/gob"
+	"encoding/hex"
+	"errors"
 	"fmt"
 )
 
@@ -65,4 +67,51 @@ func NewCoinBaseTX(to, data string) *Transaction {
 
 func (tx *Transaction) IsCoinBase() bool {
 	return len(tx.VIn) == 1 && len(tx.VIn[0].TxId) == 0 && tx.VIn[0].VOutIdx == -1
+}
+
+// NewUTXOTransaction 新建交易
+func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) (*Transaction, error) {
+	// 1. 获取未花费的交易输出
+	acc, validOutput := bc.FindUnSpendableOutputs(from, amount)
+	if acc < amount {
+		return nil, errors.New("no enough funds")
+	}
+
+	input := make([]TXInput, 0, len(validOutput))
+	output := make([]TXOutput, 0, 2)
+	// 将前面的未花费交易输出变为新交易的交易输入
+	for txId, idxs := range validOutput {
+		txIdByte, err := hex.DecodeString(txId)
+		if err != nil {
+			fmt.Println("decode tx id err")
+			return nil, err
+		}
+		for _, idx := range idxs {
+			input = append(input, TXInput{
+				TxId:     txIdByte,
+				VOutIdx:  idx,
+				FromAddr: from,
+			})
+		}
+	}
+
+	output = append(output, TXOutput{
+		Value:  amount,
+		ToAddr: to,
+	})
+	if acc > amount {
+		// 剩余的币要还给发送帐号
+		output = append(output, TXOutput{
+			Value:  acc - amount,
+			ToAddr: from,
+		})
+	}
+
+	tx := &Transaction{
+		ID:   nil,
+		VIn:  input,
+		VOut: output,
+	}
+	tx.SetId()
+	return tx, nil
 }

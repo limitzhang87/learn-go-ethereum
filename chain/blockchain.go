@@ -47,7 +47,8 @@ func NewBlockchain() *Blockchain {
 		if bucket == nil {
 			// 3.2.1 第一次使用，创建创世块
 			fmt.Println("No existing blockchain found. Creating a new one...")
-			cbTx := NewCoinBaseTX(Miner, GenesisCoinbaseData)
+			miner, _ := hex.DecodeString(Miner)
+			cbTx := NewCoinBaseTX(miner, GenesisCoinbaseData)
 			genesis := NewGenesisBlock(cbTx)
 			// 3.2.2 区块数据编码
 			blockData := genesis.Serialize()
@@ -95,8 +96,9 @@ func (bc *Blockchain) MinedBlock(txs []*Transaction, data string) {
 	})
 
 	// 交易信息增加挖矿奖励
-	cbtx := NewCoinBaseTX(Miner, data)
-	txs = append(txs, cbtx)
+	miner, _ := hex.DecodeString(Miner)
+	cbTx := NewCoinBaseTX(miner, data)
+	txs = append(txs, cbTx)
 
 	// 利用前块生成新块
 	newBlock := NewBlock(txs, tip)
@@ -124,7 +126,7 @@ func (bc *Blockchain) MinedBlock(txs []*Transaction, data string) {
 
 // FindUnspentTransactionsOld 查找账户可以解锁的全部交易
 // Deprecated: 不再使用
-func (bc *Blockchain) FindUnspentTransactionsOld(address string) []*Transaction {
+func (bc *Blockchain) FindUnspentTransactionsOld(address []byte) []*Transaction {
 	var unspentTXs []*Transaction
 	// 已经花出的UTXO， 构建tx -> VOutIdx的map
 	spentTXOs := make(map[string][]int)
@@ -174,7 +176,7 @@ func (bc *Blockchain) FindUnspentTransactionsOld(address string) []*Transaction 
 }
 
 // FindUnspentTransactions 查找账户可以解锁的全部交易
-func (bc *Blockchain) FindUnspentTransactions(address string) []*Transaction {
+func (bc *Blockchain) FindUnspentTransactions(address []byte) []*Transaction {
 	var unspentTXs []*Transaction
 	// 已经花出的UTXO， 构建tx -> VOutIdx的map
 	spentTXOs := make(map[string]map[int]struct{})
@@ -226,7 +228,7 @@ func (bc *Blockchain) FindUnspentTransactions(address string) []*Transaction {
 }
 
 // FindUTXO 查找账户的全部UTXO
-func (bc *Blockchain) FindUTXO(address string) []*TXOutput {
+func (bc *Blockchain) FindUTXO(address []byte) []*TXOutput {
 	unspentTXs := bc.FindUnspentTransactions(address)
 	UTXO := make([]*TXOutput, 0, len(unspentTXs))
 	for _, tx := range unspentTXs {
@@ -240,7 +242,7 @@ func (bc *Blockchain) FindUTXO(address string) []*TXOutput {
 	return UTXO
 }
 
-func (bc *Blockchain) FindUnSpendableOutputs(address string, amount int) (int, map[string][]int) {
+func (bc *Blockchain) FindUnSpendableOutputs(address []byte, amount int) (int, map[string][]int) {
 	unspentTXs := bc.FindUnspentTransactions(address)
 	unspentTXOs := make(map[string][]int)
 	value := 0
@@ -260,7 +262,26 @@ Loop:
 	return value, unspentTXOs
 }
 
-func (bc *Blockchain) GetBalance(address string) int {
+func (bc *Blockchain) FindUnSpendableOutputsWithTX(address []byte, amount int, unspentTXs []*Transaction) (int, map[string][]int) {
+	unspentTXOs := make(map[string][]int)
+	value := 0
+Loop:
+	for _, tx := range unspentTXs {
+		txId := hex.EncodeToString(tx.ID)
+		for i, output := range tx.VOut {
+			if output.CanBeUnLockWith(address) && value < amount {
+				unspentTXOs[txId] = append(unspentTXOs[txId], i)
+				value += output.Value
+				if value > amount {
+					break Loop
+				}
+			}
+		}
+	}
+	return value, unspentTXOs
+}
+
+func (bc *Blockchain) GetBalance(address []byte) int {
 	UTXO := bc.FindUTXO(address)
 	value := 0
 	for _, out := range UTXO {

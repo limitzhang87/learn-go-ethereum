@@ -5,6 +5,13 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
+	"fmt"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/tyler-smith/go-bip39"
 	"golang.org/x/crypto/ripemd160"
 	"golang.org/x/crypto/sha3"
 	"log"
@@ -71,4 +78,73 @@ func (w *Wallet) GetAddress() []byte {
 	fullPayload := append(versionPayload, checksum...)
 	address := Base58Encode(fullPayload)
 	return address
+}
+
+// DeriveAddressFromMnemonic 根据助记词和密码反推私钥
+func DeriveAddressFromMnemonic(mnemonic string, password string, index int) {
+	// 1. 推导路径
+	/*
+		m/44'  提案编号，39,44
+		/60' 币种 比特比(0), 以太坊(60)
+		/0' 逻辑性亚账户
+		/0 HD钱包两个压树， 一个用来接收地址，一个用来找零
+		/1 地址编号
+	*/
+
+	path := fmt.Sprintf("m/44'/60'/0'/0/%d", index)
+	dPath, err := accounts.ParseDerivationPath(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 2. 获取种子
+	seed, err := bip39.NewSeedWithErrorChecking(mnemonic, password)
+	// 3. 获取主key
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.Params{})
+	if err != nil {
+		fmt.Println("Failed to NewMaster", err)
+		return
+	}
+	// 4. 推导私钥
+	privateKey, err := DerivePrivateKey(dPath, masterKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// 5. 推导公钥
+	publicKey, err := DerivePublicKey(privateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// 6. 利用公钥推导私钥
+	address := crypto.PubkeyToAddress(*publicKey)
+	fmt.Println(address.Hex())
+}
+
+func DerivePrivateKey(path accounts.DerivationPath, masterKey *hdkeychain.ExtendedKey) (*ecdsa.PrivateKey, error) {
+	var err error
+	key := masterKey
+	for _, n := range path {
+		// 按照路径跌倒获得最终key
+		key, err = key.Child(n)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// 将key转换为ecdsa私钥
+	privateKey, err := key.ECPrivKey()
+	privateKeyECDSA := privateKey.ToECDSA()
+	if err != nil {
+		return nil, err
+	}
+
+	return privateKeyECDSA, nil
+}
+
+func DerivePublicKey(privateKey *ecdsa.PrivateKey) (*ecdsa.PublicKey, error) {
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, errors.New("failed to get public key")
+	}
+	return publicKeyECDSA, nil
 }

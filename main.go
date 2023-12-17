@@ -8,22 +8,31 @@ import (
 
 func main() {
 
-	bc := chain.NewBlockchain()
-	fmt.Println(bc.GetBalance("limit"))
-
-	tx, err := chain.NewUTXOTransaction("limit", "limit2", 3, bc)
+	w, err := chain.NewHDWallet("./keystore")
 	if err != nil {
 		log.Fatal(err)
 	}
-	bc.MinedBlock([]*chain.Transaction{tx}, "aa")
-
-	tx, err = chain.NewUTXOTransaction("limit", "limit3", 4, bc)
+	err = w.StoreKey("123456")
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
 	}
-	bc.MinedBlock([]*chain.Transaction{tx}, "bb")
 
-	fmt.Println(bc.GetBalance("limit"))
-	fmt.Println(bc.GetBalance("limit2"))
-	fmt.Println(bc.GetBalance("limit3"))
+	//bc := chain.NewBlockchain()
+	//fmt.Println(bc.GetBalance("limit"))
+	//
+	//tx, err := chain.NewUTXOTransaction("limit", "limit2", 3, bc)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//bc.MinedBlock([]*chain.Transaction{tx}, "aa")
+	//
+	//tx, err = chain.NewUTXOTransaction("limit", "limit3", 4, bc)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//bc.MinedBlock([]*chain.Transaction{tx}, "bb")
+	//
+	//fmt.Println(bc.GetBalance("limit"))
+	//fmt.Println(bc.GetBalance("limit2"))
+	//fmt.Println(bc.GetBalance("limit3"))
 }

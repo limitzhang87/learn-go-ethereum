@@ -8,7 +8,7 @@ import (
 
 func main() {
 
-	w, err := chain.NewHDWallet("./keystore")
+	w, err := chain.NewWallet("./keystore")
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -15,16 +15,16 @@ import (
 )
 
 type HDKeyStore struct {
-	keyDirPath string       // 文件所在路径
-	scryptN    int          // 生成加密文件的参数N
-	scryptP    int          // 生成加密文件的参数p
-	Key        keystore.Key // HDKeyStore对应的key
+	keyDirPath string        // 文件所在路径
+	scryptN    int           // 生成加密文件的参数N
+	scryptP    int           // 生成加密文件的参数p
+	Key        *keystore.Key // HDKeyStore对应的key
 }
 
-func NewHDKeystore(path string, privateKey *ecdsa.PrivateKey) *HDKeyStore {
+func NewHDKeyStore(path string, privateKey *ecdsa.PrivateKey) *HDKeyStore {
 	// 获取UUID
 	uuid1 := NewRandom()
-	key := keystore.Key{
+	key := &keystore.Key{
 		Id:         uuid.UUID(uuid1),
 		Address:    crypto.PubkeyToAddress(privateKey.PublicKey),
 		PrivateKey: privateKey,
@@ -38,6 +38,15 @@ func NewHDKeystore(path string, privateKey *ecdsa.PrivateKey) *HDKeyStore {
 	}
 }
 
+func NewHDKeyStoreNoKey(path string) *HDKeyStore {
+	return &HDKeyStore{
+		keyDirPath: path,
+		scryptN:    keystore.StandardScryptN, // 这两个会影响加密时间，从而影响生成钱包数据的时间
+		scryptP:    keystore.StandardScryptP,
+		Key:        &keystore.Key{},
+	}
+}
+
 type UUID [16]byte
 
 // 全局加密随机阅读器
@@ -45,15 +54,15 @@ type UUID [16]byte
 // 生成UUID
 
 func NewRandom() UUID {
-	uuid := make([]byte, 16)
-	_, err := io.ReadFull(rand.Reader, uuid)
+	uUid := make([]byte, 16)
+	_, err := io.ReadFull(rand.Reader, uUid)
 	if err != nil {
 		log.Fatal("new random err", err)
 	}
 	// 版本4规范处理与变形
-	uuid[6] = (uuid[6] & 0x0f) | 0x40
-	uuid[8] = (uuid[8] & 0x3f) | 0x80
-	return [16]byte(uuid)
+	uUid[6] = (uUid[6] & 0x0f) | 0x40
+	uUid[8] = (uUid[8] & 0x3f) | 0x80
+	return [16]byte(uUid)
 }
 
 func (ks *HDKeyStore) StoreKey(filename string, key *keystore.Key, auth string) error {
@@ -97,14 +106,14 @@ func (ks *HDKeyStore) JoinPath(filename string) string {
 	return filepath.Join(ks.keyDirPath, filename)
 }
 
-func (ks *HDKeyStore) GetKey(addr common.Address, filename, auth string) (*keystore.Key, error) {
+func (ks *HDKeyStore) GetKey(addr common.Address, filename, pass string) (*keystore.Key, error) {
 	// 读取文件内容
 	keyJoin, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 	// 利用以太坊DecryptKey解码json文件
-	key, err := keystore.DecryptKey(keyJoin, auth)
+	key, err := keystore.DecryptKey(keyJoin, pass)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +122,6 @@ func (ks *HDKeyStore) GetKey(addr common.Address, filename, auth string) (*keyst
 	if key.Address != addr {
 		return nil, fmt.Errorf("key context mismath: have account%x, want %x", key.Address, addr)
 	}
-	ks.Key = *key
+	ks.Key = key
 	return key, nil
 }

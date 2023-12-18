@@ -2,125 +2,119 @@ package chain
 
 import (
 	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/howeyc/gopass"
 	"github.com/tyler-smith/go-bip39"
 	"golang.org/x/crypto/ripemd160"
 	"golang.org/x/crypto/sha3"
 	"log"
 )
 
-func newKeyPair() (*ecdsa.PrivateKey, []byte) {
-	curve := elliptic.P256() // 椭圆曲率
-	// 生成私钥
-	private, err := ecdsa.GenerateKey(curve, rand.Reader)
+const DefaultDerivationPath = "m/40'/60'/0'/0/1"
+
+func createMnemonic() (string, error) {
+	// Entropy 生成， 注意传入值y=32*x, 并且 128<=y<=256
+	b, err := bip39.NewEntropy(128)
 	if err != nil {
-		log.Panic(err)
+		return "", err
 	}
-	// 利用私钥推导出公钥
-	pubKey := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
-	return private, pubKey
+	// 生成助记词
+	return bip39.NewMnemonic(b)
 }
 
-// Wallet 钱包结构
+// Wallet 钱包结构体
 type Wallet struct {
-	PrivateKey *ecdsa.PrivateKey // 私钥
-	PublicKey  []byte            // 公钥
+	Address    common.Address
+	HDKeyStore *HDKeyStore
 }
 
-// NewWallet 创建钱包
-func NewWallet() *Wallet {
-	// 随机生成密钥对
-	privateKey, publicKey := newKeyPair()
-	wallet := &Wallet{
-		PrivateKey: privateKey,
-		PublicKey:  publicKey,
-	}
-	return wallet
-}
-
-// HashPublicKey 计算公钥 hash
-func HashPublicKey(publicKey []byte) []byte {
-	// 1. 先hash一次
-	publicSHA256 := sha3.Sum256(publicKey)
-	// 2. 计算 ripemed160
-	RIPEMD160Hasher := ripemd160.New()
-	RIPEMD160Hasher.Write(publicSHA256[:])
-
-	publicRIPEMD160 := RIPEMD160Hasher.Sum(nil)
-	return publicRIPEMD160
-}
-
-const ChecksumLen = 4
-
-func checksum(payload []byte) []byte {
-	firstSHA := sha256.Sum256(payload)
-	secondSHA := sha256.Sum256(firstSHA[:])
-	return secondSHA[:ChecksumLen]
-}
-
-const version = byte(0x00)
-
-func (w *Wallet) GetAddress() []byte {
-	// 1. 计算公钥 hash
-	publicKeyHash := HashPublicKey(w.PublicKey)
-	// 2. 计算校验和
-	versionPayload := append([]byte{version}, publicKeyHash...)
-	checksum := checksum(versionPayload)
-	// 3. 计算base58编码
-	fullPayload := append(versionPayload, checksum...)
-	address := Base58Encode(fullPayload)
-	return address
-}
-
-// DeriveAddressFromMnemonic 根据助记词和密码反推私钥
-func DeriveAddressFromMnemonic(mnemonic string, password string, index int) {
-	// 1. 推导路径
-	/*
-		m/44'  提案编号，39,44
-		/60' 币种 比特比(0), 以太坊(60)
-		/0' 逻辑性亚账户
-		/0 HD钱包两个压树， 一个用来接收地址，一个用来找零
-		/1 地址编号
-	*/
-
-	path := fmt.Sprintf("m/44'/60'/0'/0/%d", index)
-	dPath, err := accounts.ParseDerivationPath(path)
+// NewWallet 钱包构造函数
+func NewWallet(keyPath string) (*Wallet, error) {
+	// 1. 创建助记词
+	mn, err := createMnemonic()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Failed to NewWallet", err)
+		return nil, err
 	}
-
-	// 2. 获取种子
-	seed, err := bip39.NewSeedWithErrorChecking(mnemonic, password)
-	// 3. 获取主key
-	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.Params{})
+	fmt.Println(mn)
+	// 2. 推导私钥
+	privateKey, err := NewKeyFromMnemonic(mn)
 	if err != nil {
-		fmt.Println("Failed to NewMaster", err)
-		return
+		fmt.Println("failed to NewKeyFromMnemonic", err)
+		return nil, err
 	}
-	// 4. 推导私钥
-	privateKey, err := DerivePrivateKey(dPath, masterKey)
+	// 3. 获取地址
+	publicKey, err := GetPublicKey(privateKey)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("failed to GetPublicKey", err)
+		return nil, err
 	}
-	// 5. 推导公钥
-	publicKey, err := DerivePublicKey(privateKey)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// 6. 利用公钥推导私钥
+	// 利用公钥推导私钥
 	address := crypto.PubkeyToAddress(*publicKey)
-	fmt.Println(address.Hex())
+	// 4. 创建keystore
+	hdKs := NewHDKeyStore(keyPath, privateKey)
+	// 5. 创建钱包
+	return &Wallet{address, hdKs}, nil
 }
 
-func DerivePrivateKey(path accounts.DerivationPath, masterKey *hdkeychain.ExtendedKey) (*ecdsa.PrivateKey, error) {
+func LoadWallet(filename, dataDir string) (*Wallet, error) {
+	hdKs := NewHDKeyStoreNoKey(dataDir)
+	// 解决密码问题
+	fmt.Println("Please input password for:", filename)
+	pass, err := gopass.GetPasswd()
+	if err != nil {
+		fmt.Println("get pass err", err)
+		return nil, err
+	}
+	address := common.HexToAddress(filename) // 文件名就是账户地址
+	_, err = hdKs.GetKey(address, hdKs.JoinPath(filename), string(pass))
+	if err != nil {
+		fmt.Println("failed to get key", err)
+		return nil, err
+	}
+	//hdKs.Key = key 在GetKey中已经执行过这句了
+	return &Wallet{
+		Address:    address,
+		HDKeyStore: hdKs,
+	}, nil
+
+}
+
+func (w *Wallet) StoreKey(pass string) error {
+	// 账户即文件名
+	filename := w.HDKeyStore.JoinPath(w.Address.Hex())
+	return w.HDKeyStore.StoreKey(filename, w.HDKeyStore.Key, pass)
+}
+
+func NewKeyFromMnemonic(mn string) (*ecdsa.PrivateKey, error) {
+	//1. 推导目录
+	path, err := accounts.ParseDerivationPath(DefaultDerivationPath)
+	if err != nil {
+		log.Panic("Failed to ParseDerivationPath ", err)
+	}
+	//2. 通过助记词生成种子
+	//NewSeedWithErrorChecking(mnemonic string, password string) ([]byte, error)
+	seed, err := bip39.NewSeedWithErrorChecking(mn, "")
+	if err != nil {
+		log.Panic("Failed to NewSeedWithErrorChecking ", err)
+	}
+	//3. 获得主key
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	if err != nil {
+		log.Panic("Failed to NewMaster", err)
+	}
+	//4. 推导私钥
+	return GetPrivateKey(path, masterKey)
+}
+
+func GetPrivateKey(path accounts.DerivationPath, masterKey *hdkeychain.ExtendedKey) (*ecdsa.PrivateKey, error) {
 	var err error
 	key := masterKey
 	for _, n := range path {
@@ -140,11 +134,47 @@ func DerivePrivateKey(path accounts.DerivationPath, masterKey *hdkeychain.Extend
 	return privateKeyECDSA, nil
 }
 
-func DerivePublicKey(privateKey *ecdsa.PrivateKey) (*ecdsa.PublicKey, error) {
+func GetPublicKey(privateKey *ecdsa.PrivateKey) (*ecdsa.PublicKey, error) {
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return nil, errors.New("failed to get public key")
 	}
 	return publicKeyECDSA, nil
+}
+
+// =====================================
+
+const ChecksumLen = 4
+
+const version = byte(0x00)
+
+// HashPublicKey 计算公钥 hash
+func HashPublicKey(publicKey []byte) []byte {
+	// 1. 先hash一次
+	publicSHA256 := sha3.Sum256(publicKey)
+	// 2. 计算 ripemed160
+	RIPEMD160Hasher := ripemd160.New()
+	RIPEMD160Hasher.Write(publicSHA256[:])
+
+	publicRIPEMD160 := RIPEMD160Hasher.Sum(nil)
+	return publicRIPEMD160
+}
+
+func GetAddress(publicKey []byte) []byte {
+	// 1. 计算公钥 hash
+	publicKeyHash := HashPublicKey(publicKey)
+	// 2. 计算校验和
+	versionPayload := append([]byte{version}, publicKeyHash...)
+	checksum := checksum(versionPayload)
+	// 3. 计算base58编码
+	fullPayload := append(versionPayload, checksum...)
+	address := Base58Encode(fullPayload)
+	return address
+}
+
+func checksum(payload []byte) []byte {
+	firstSHA := sha256.Sum256(payload)
+	secondSHA := sha256.Sum256(firstSHA[:])
+	return secondSHA[:ChecksumLen]
 }

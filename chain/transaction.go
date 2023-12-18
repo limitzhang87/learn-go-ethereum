@@ -175,7 +175,10 @@ func NewUTXOTransaction(from, to []byte, amount int, bc *Blockchain) (*Transacti
 		unspentTxMap[txId] = unspentTx
 	}
 
-	wallet := NewWallet()
-	tx.Sign(wallet.PrivateKey, unspentTxMap)
+	wallet, err := NewWallet("./keystore")
+	if err != nil {
+		return nil, err
+	}
+	tx.Sign(wallet.HDKeyStore.Key.PrivateKey, unspentTxMap)
 	return tx, nil
 }
